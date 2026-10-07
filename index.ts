@@ -247,14 +247,25 @@ Once the plan is complete, stop planning and present it. Do not edit files, begi
 
 			if (choice === "Implement the plan") {
 				disable(ctx);
-				pi.sendUserMessage("Implement the plan above. Make the changes now, following the plan and verifying the result.");
+				// agent_end runs while the completed turn is still being unwound.
+				// Queue the next prompt instead of trying to start a concurrent turn.
+				pi.sendUserMessage("Implement the plan above. Make the changes now, following the plan and verifying the result.", {
+					deliverAs: "followUp",
+				});
 				return;
 			}
 
 			if (choice === "Make changes") {
 				const feedback = await ctx.ui.editor("What should change in the plan?", "");
 				if (feedback?.trim()) {
-					pi.sendUserMessage(`Revise the plan based on this feedback:\n\n${feedback.trim()}`);
+					// The selection/editor is opened from agent_end, so the agent may
+					// still be marked as processing when this callback resumes.
+					pi.sendUserMessage(
+						`Rewrite the entire plan based on this feedback. Do not only describe the changes; provide a complete replacement plan with all steps included.\n\nFeedback:\n${feedback.trim()}`,
+						{
+							deliverAs: "steer",
+						},
+					);
 				} else if (feedback !== undefined) {
 					ctx.ui.notify("No plan changes provided; staying in plan mode.", "warning");
 				}
