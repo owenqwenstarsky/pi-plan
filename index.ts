@@ -124,11 +124,11 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 			return;
 		}
 		if (prompt) {
-			if (!ctx.isIdle()) {
-				ctx.ui.notify("The agent is busy; plan mode is enabled but the prompt was not sent.", "warning");
-				return;
-			}
-			pi.sendUserMessage(prompt);
+			// A command can run in the small window between an idle check and
+			// dispatch (and commands may also be invoked while a turn is active).
+			// Always provide a delivery mode so Pi queues rather than rejecting the
+			// message if the agent is processing.
+			await pi.sendUserMessage(prompt, { deliverAs: "followUp" });
 		}
 	}
 
@@ -249,7 +249,7 @@ Once the plan is complete, stop planning and present it. Do not edit files, begi
 				disable(ctx);
 				// agent_end runs while the completed turn is still being unwound.
 				// Queue the next prompt instead of trying to start a concurrent turn.
-				pi.sendUserMessage("Implement the plan above. Make the changes now, following the plan and verifying the result.", {
+				await pi.sendUserMessage("Implement the plan above. Make the changes now, following the plan and verifying the result.", {
 					deliverAs: "followUp",
 				});
 				return;
@@ -260,7 +260,7 @@ Once the plan is complete, stop planning and present it. Do not edit files, begi
 				if (feedback?.trim()) {
 					// The selection/editor is opened from agent_end, so the agent may
 					// still be marked as processing when this callback resumes.
-					pi.sendUserMessage(
+					await pi.sendUserMessage(
 						`Rewrite the entire plan based on this feedback. Do not only describe the changes; provide a complete replacement plan with all steps included.\n\nFeedback:\n${feedback.trim()}`,
 						{
 							deliverAs: "steer",
