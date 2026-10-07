@@ -14,16 +14,25 @@ A local Pi extension that adds a conservative, read-only planning mode and a mod
   - Every question includes a “Type your own response” choice.
   - `←`, `Shift+Tab`, or `Backspace` revises the previous question.
   - Answers are reviewed before submission.
-- When a numbered plan is complete, Pi prompts with:
+- The model creates a plan with the `plan` tool when it is ready. The plan and initial todos are shown, and the agent pauses for review.
+- Plan review tools are available only in plan mode:
+  - `plan` creates the complete plan and initial todos.
+  - `plan_read` reads the current plan and todos.
+  - `plan_edit` applies exact `oldText`/`newText` replacements to the plan.
+- `todo_edit` is available outside plan mode and supports adding, updating, completing, removing, and moving individual todos by stable ID.
+- After a plan is created or edited, Pi prompts with:
   - **Implement the plan** — exits plan mode and sends the implementation request.
   - **Make changes** — opens an editor for feedback, revises the plan, and stays in plan mode.
-- Mode state and the pre-plan tool set are persisted with the session branch.
+- Plan and todo state, as well as mode state and the pre-plan tool set, are persisted with the session branch.
 
 ## Files
 
-- `index.ts` — command, tool loadout, read-only enforcement, prompt context, and session state.
+- `index.ts` — command, tool loadout, read-only enforcement, prompt context, review flow, and session state.
 - `ask-questions.ts` — sequential custom TUI and `ask_questions` tool.
-- `utils.ts` — session state and bash safety policy.
+- `plan.ts` — plan creation, reading, exact editing, and rendering.
+- `todo.ts` — stable-ID todo patching and rendering.
+- `state.ts` — branch-local plan/todo state and reconstruction.
+- `utils.ts` — plan-mode state and bash safety policy.
 
 ## Install from GitHub
 
@@ -53,4 +62,4 @@ The extension is not copied to `~/.pi/agent/extensions` and does not modify Pi's
 
 Plan mode is intentionally conservative. A shell command is allowed only when it starts with a known read-only command family, is a single simple command, and contains no destructive token. The injected planning prompt tells the model to prefer Pi's built-in inspection tools and never compose bash commands with `&&`, pipes, redirects, or command substitution. If a command is rejected, leave plan mode with `/plan off` rather than trying to work around the guard.
 
-The question UI requires Pi's interactive TUI. In RPC, JSON, and print modes, the tool returns a useful cancellation/error result instead of attempting to access terminal controls.
+The question UI requires Pi's interactive TUI. In RPC, JSON, and print modes, the tool returns a useful cancellation/error result instead of attempting to access terminal controls. Plan tools remain model-callable in non-TUI modes; the interactive review prompt is only shown when a UI is available.

@@ -22,6 +22,9 @@
   "files": [
     "index.ts",
     "ask-questions.ts",
+    "plan.ts",
+    "todo.ts",
+    "state.ts",
     "utils.ts",
     "README.md"
   ],

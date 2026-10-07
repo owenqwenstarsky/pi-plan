@@ -1,32 +1,15 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { AssistantMessage, TextContent } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { registerAskQuestionsTool } from "./ask-questions.ts";
+import { registerPlanTools } from "./plan.ts";
+import { registerTodoTool } from "./todo.ts";
+import { lastPlanMutation, reconstructPlan, type PlanSnapshot } from "./state.ts";
 import { isSafeReadOnlyCommand, type PlanModeState } from "./utils.ts";
 
 const ASK_TOOL_NAME = "ask_questions";
+const PLAN_TOOL_NAMES = ["plan", "plan_read", "plan_edit"];
 const WRITE_TOOLS = new Set(["edit", "write"]);
 const PLAN_CONTEXT_TYPE = "plan-mode-context";
-
-function isAssistantMessage(message: AgentMessage): message is AssistantMessage {
-	return message.role === "assistant" && Array.isArray(message.content);
-}
-
-function assistantText(message: AssistantMessage): string {
-	return message.content
-		.filter((block): block is TextContent => block.type === "text")
-		.map((block) => block.text)
-		.join("\n");
-}
-
-function containsPlan(messages: AgentMessage[]): boolean {
-	const lastAssistant = [...messages].reverse().find(isAssistantMessage);
-	if (!lastAssistant) return false;
-	const text = assistantText(lastAssistant);
-	const planStart = text.search(/(?:^|\n)\s*(?:#{1,6}\s*)?plan\s*:?\s*(?:\n|$)/i);
-	if (planStart < 0) return false;
-	return /^\s*(?:\d+[.)]|[-*])\s+\S+/m.test(text.slice(planStart));
-}
 
 /**
  * Plan mode for Pi.
@@ -39,10 +22,14 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 	let enabled = false;
 	let toolsBeforePlanMode: string[] | undefined;
 	let planDecisionOpen = false;
+	let snapshot: PlanSnapshot = { plan: "", todos: [], nextTodoId: 1 };
+	const getSnapshot = (): PlanSnapshot => snapshot;
+	const setSnapshot = (next: PlanSnapshot): void => {
+		snapshot = { plan: next.plan, todos: next.todos.map((todo) => ({ ...todo })), nextTodoId: next.nextTodoId };
+	};
 
-	// Register the tool once, but keep it out of the normal tool loadout.
-	// The tool definition opts into defaultActive: false; changing the loadout
-	// during extension factory execution is not allowed by Pi.
+	registerPlanTools(pi, () => enabled, getSnapshot, setSnapshot);
+	registerTodoTool(pi, getSnapshot, setSnapshot);
 	registerAskQuestionsTool(pi, () => enabled);
 
 	function unique(names: string[]): string[] {
@@ -54,10 +41,11 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 			toolsBeforePlanMode = pi.getActiveTools();
 		}
 
-		const planTools = toolsBeforePlanMode.filter((name) => !WRITE_TOOLS.has(name));
+		const planTools = (toolsBeforePlanMode ?? []).filter((name) => !WRITE_TOOLS.has(name));
 		const availableTools = new Set(pi.getAllTools().map((tool) => tool.name));
 		const preferredReadTools = ["grep", "find", "ls"].filter((name) => availableTools.has(name));
-		pi.setActiveTools(unique([...planTools, ...preferredReadTools, ASK_TOOL_NAME]));
+		const availablePlanTools = PLAN_TOOL_NAMES.filter((name) => availableTools.has(name));
+		pi.setActiveTools(unique([...planTools, ...preferredReadTools, ...availablePlanTools, ASK_TOOL_NAME]));
 	}
 
 	function restoreTools(): void {
@@ -231,12 +219,12 @@ Keep the plan proportional to the request. Make steps ordered, specific, and act
 
 ## Completion behavior
 
-Once the plan is complete, stop planning and present it. Do not edit files, begin implementation, or ask a generic confirmation question; the surrounding plan-mode UI will offer the user the choices to implement the plan or request revisions. If the user supplies revision feedback, stay in planning mode, inspect anything newly relevant, and produce a revised plan.`,
+When the plan is complete, call the \`plan\` tool with the complete plan and initial todos. Do not only print the plan in assistant text. The tool presents it to the user and pauses the turn. For revisions, call \`plan_read\` before using \`plan_edit\`; submit a complete, coherent revision through the tool. Use \`todo_edit\` to update individual todos, including after leaving plan mode. Do not edit files, begin implementation, or ask a generic confirmation question; the surrounding plan-mode UI will offer the user the choices to implement the plan or request revisions.`,
 		};
 	});
 
 	async function promptAfterPlan(ctx: ExtensionContext, messages: AgentMessage[]): Promise<void> {
-		if (!enabled || !ctx.hasUI || planDecisionOpen || !containsPlan(messages)) return;
+		if (!enabled || !ctx.hasUI || planDecisionOpen || !lastPlanMutation(messages)) return;
 
 		planDecisionOpen = true;
 		try {
@@ -304,10 +292,12 @@ Once the plan is complete, stop planning and present it. Do not edit files, begi
 	}
 
 	pi.on("session_start", async (_event, ctx) => {
+		setSnapshot(reconstructPlan(ctx));
 		restoreFromBranch(ctx);
 	});
 
 	pi.on("session_tree", async (_event, ctx) => {
+		setSnapshot(reconstructPlan(ctx));
 		restoreFromBranch(ctx);
 	});
 }
