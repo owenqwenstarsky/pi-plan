@@ -25,6 +25,14 @@ A local Pi extension that adds a conservative, read-only planning mode and a mod
 - `ask-questions.ts` — sequential custom TUI and `ask_questions` tool.
 - `utils.ts` — session state and bash safety policy.
 
+## Install from GitHub
+
+Install the extension from its GitHub repository:
+
+```bash
+pi install https://github.com/owenqwenstarsky/pi-plan
+```
+
 ## Try it without installing
 
 From this directory, load it explicitly:
